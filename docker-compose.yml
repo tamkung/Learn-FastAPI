@@ -1,0 +1,12 @@
+version: "2"
+services:
+  backend-fastapi:
+    build:
+      context: ./
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./:/code
+    restart: always
+    env_file:
+      - ./.env
