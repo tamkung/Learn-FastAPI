@@ -4,12 +4,14 @@ import uvicorn
 from app.file.route import router as file
 from app.user.route import router as user
 from app.book.route import router as book
+from app.mail.route import router as mail
 
 app = FastAPI()
 
 app.include_router(file)
 app.include_router(user)
 app.include_router(book)
+app.include_router(mail)
 
 @app.get("/")
 async def root():

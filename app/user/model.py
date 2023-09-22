@@ -24,8 +24,7 @@ def select_user(user_id):
     return result
 
 def insert_user(user):
-    engine = create_engine(DB_URL)
-    conn = engine.connect()
+    conn = create_engine(DB_URL).connect()
     
     sql_text = text("""
         INSERT INTO users (first_name, last_name, email, active)
@@ -45,8 +44,7 @@ def insert_user(user):
     return result
 
 def update_user(user_id, user):
-    engine = create_engine(DB_URL)
-    conn = engine.connect()
+    conn = create_engine(DB_URL).connect()
     
     sql_text = text("""
         UPDATE users
@@ -68,8 +66,7 @@ def update_user(user_id, user):
     return result
 
 def delete_user_by_id(user_id):
-    engine = create_engine(DB_URL)
-    conn = engine.connect()
+    conn = create_engine(DB_URL).connect()
     
     sql_text = text("""
         DELETE FROM users

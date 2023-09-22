@@ -1,21 +1,49 @@
 from fastapi import File, UploadFile
 from typing import List
-import pandas as pd  
+import pandas as pd 
+import os
 
 async def up_img(file: UploadFile = File(...)):
     size = await file.read()
-    return  { "File Name": file.filename, "size": len(size)}
+    
+    if not os.path.exists("uploads"):
+        os.makedirs("uploads")
+    
+    with open("uploads/"+file.filename, "wb") as f:
+        f.write(size)
+    
+    result = {
+        "status": 200,
+        "message": "Upload Success",
+        "data": {
+            "file_name": file.filename,
+            "size": len(size)
+        }
+    }
+    return result
 
 async def up_multi_file(files: List[UploadFile] = File(...)):
-    file = [
-        {
-            "File Name":file.filename, 
-            "Size":len(await file.read())
-        } for file in files]
-    return  file
+    file_data = []
+    for file in files:
+        size = await file.read()
+        if not os.path.exists("uploads"):
+            os.makedirs("uploads")
+        with open("uploads/"+file.filename, "wb") as f:
+            f.write(size)
 
-async def save_csv(file: UploadFile = File(...)):
-    df = pd.read_csv(file.file)
-    print("5555")
-    df.to_csv("test.csv")
-    return  { "File Name": file.filename, "size": len(df)}
+        if len(size) >= 1000000:
+            size = str(round(len(size)/1000000, 2))+" MB"
+        else:
+            size = str(round(len(size)/1000, 2))+" KB"
+        
+        file_data.append({
+            "file_name": file.filename,
+            "size": size
+        })
+    
+    result = {
+        "status": 200,
+        "message": "Upload Success",
+        "data": file_data
+    }
+    return result
