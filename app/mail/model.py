@@ -1,7 +1,13 @@
 from sqlalchemy import (create_engine,text)
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DATABASE_URL = os.getenv('DATABASE_URL')
 
 def insertEmail(message_id, header, subject, body, fromAddr, to, cc ,received_at, created_by, in_reply_to, ticket_id, critical_type, status, plain_text, email_type):
-    engine = create_engine("postgresql://postgres:postgrespassword@18.139.38.227:5432/postgres")
+    engine = create_engine(DATABASE_URL)
     conn = engine.connect()
     sql_text = text('''
         INSERT INTO public.emails
@@ -31,7 +37,7 @@ def insertEmail(message_id, header, subject, body, fromAddr, to, cc ,received_at
     return result
 
 def insertEmailAttachments(message_id, file_name, url, file_size):
-    engine = create_engine("postgresql://postgres:postgrespassword@18.139.38.227:5432/postgres")
+    engine = create_engine(DATABASE_URL)
     conn = engine.connect()
     sql_text = text("""
         INSERT INTO public.email_attachments
@@ -49,21 +55,19 @@ def insertEmailAttachments(message_id, file_name, url, file_size):
     conn.close()
     return result
 
-def selectCriticalDomain(platform, email):
-    engine = create_engine("postgresql://postgres:postgrespassword@18.139.38.227:5432/postgres")
+def selectMailCritical(email):
+    engine = create_engine(DATABASE_URL)
     conn = engine.connect()
     sql_text = text('''
         SELECT *
         FROM public.email_noc_critical
         WHERE email = :email 
-        AND platform = :platform
-        AND status = 'active'
+        AND active_status = true
     ''')
     params = {
-        "email": email,
-        "platform": platform
+        "email": email
     }
-    result = conn.execute(sql_text, params)
+    result = conn.execute(sql_text, params).fetchall()
     conn.commit()
     conn.close()
     return result

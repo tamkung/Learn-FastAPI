@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from itertools import chain
 from sentry_sdk import capture_exception
 
-from app.mail.model import insertEmail, insertEmailAttachments
+from app.mail.model import insertEmail, insertEmailAttachments, selectMailCritical
 from app.general_utility import convertStrToDate
 from app.sentry_config import sentryLog
 from app.s3.controller import uploadFileToS3, uploadContentImageToS3
@@ -705,13 +705,14 @@ def receiveMail(folder):
         else:
             body = html_text
 
-        domain_name = str(fromAddr).split("@")
-        domain_name = domain_name[1].replace(">","")
-        
+        mail_from = str(fromAddr).split("<")
+        mail_from = mail_from[1].replace(">","")
+        print(mail_from)
         #Check Domain in Email with Critical Domain
-        critical_domain = ''
-        #critical_domain = selectCriticalDomain(name=domain_name)
-        if len(critical_domain) > 0:
+        # critical_domain = ''
+        mail_critical = selectMailCritical(email=mail_from)
+        print(mail_critical)
+        if len(mail_critical) > 0:
             critical_type = True
         else:
             critical_type = False
