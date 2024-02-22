@@ -944,8 +944,8 @@ def netflixForwardEmail():
     
     # Connect IMAP
     client = connectImap(folder=folder)
-    #CURRENT_NOW = datetime.now(pytz.utc)
-    CURRENT_NOW = datetime.now(pytz.utc) - timedelta(days=5)
+    CURRENT_NOW = datetime.now(pytz.utc)
+    #CURRENT_NOW = datetime.now(pytz.utc) - timedelta(days=5)
     CRITERIA = {
         'FROM': '',
         'SINCE': CURRENT_NOW.date().strftime("%d-%b-%Y")
