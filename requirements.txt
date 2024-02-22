@@ -12,3 +12,4 @@ minio==7.1.16
 boto3==1.28.52
 pytz==2023.3.post1
 sentry-sdk==1.31.0
+schedule==1.2.1

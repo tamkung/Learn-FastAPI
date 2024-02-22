@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.mail.controller import receive_mail_all_folder
+from app.mail.controller import receive_mail_all_folder, replyEmail, forwardEmail
 
 router = APIRouter(
     prefix="/mail",
@@ -8,3 +8,5 @@ router = APIRouter(
 )
 
 router.add_api_route(methods=["POST"], path="/", endpoint=receive_mail_all_folder)
+router.add_api_route(methods=["POST"], path="/reply", endpoint=replyEmail)
+router.add_api_route(methods=["POST"], path="/forward", endpoint=forwardEmail)

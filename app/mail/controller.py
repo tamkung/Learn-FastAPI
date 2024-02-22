@@ -3,6 +3,7 @@ import email
 import email.utils
 import email.generator
 import mailparser
+import smtplib
 import json
 import time 
 import pytz
@@ -20,6 +21,11 @@ from app.general_utility import convertStrToDate
 from app.sentry_config import sentryLog
 from app.s3.controller import uploadFileToS3, uploadContentImageToS3
 
+from os.path import basename
+from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
+from email.mime.text import MIMEText
+from email.mime.message import MIMEMessage
 from email.header import decode_header, make_header
 from io import StringIO
 from dotenv import load_dotenv
@@ -482,6 +488,7 @@ def receiveMail(folder):
     # Connect IMAP
     client = connectImap(folder=folder)
     CURRENT_NOW = datetime.now(pytz.utc)
+    #CURRENT_NOW = datetime.now(pytz.utc) - timedelta(days=5)
     CRITERIA = {
         'FROM': '',
         'SINCE': CURRENT_NOW.date().strftime("%d-%b-%Y")
@@ -490,7 +497,7 @@ def receiveMail(folder):
     # Fetch UID Email
     print("fetching uid")
     result, data = client.uid('search', None, '(UNSEEN)', '(SINCE {date})'.format(date=CRITERIA['SINCE']))
-    #result, data = client.uid('search', 'UNSEEN')  # Simplify the search criteria
+    #result, data = client.uid('search', 'UNSEEN', search_string(0, CRITERIA))
     print("fetch uid success")
 
     if not data or len(data[0].split()) == 0:
@@ -705,13 +712,16 @@ def receiveMail(folder):
         else:
             body = html_text
 
-        mail_from = str(fromAddr).split("<")
-        mail_from = mail_from[1].replace(">","")
+        if "<" in fromAddr:
+            tmp_from = fromAddr.split("<")
+            mail_from = tmp_from[1].replace(">","")
+        else:
+            mail_from = fromAddr
         print(mail_from)
         #Check Domain in Email with Critical Domain
         # critical_domain = ''
         mail_critical = selectMailCritical(email=mail_from)
-        print(mail_critical)
+        print(len(mail_critical))
         if len(mail_critical) > 0:
             critical_type = True
         else:
@@ -762,7 +772,6 @@ def receiveMail(folder):
             #updateTypeEmailByMessageId(type="email", message_id=message_id, updated_by="system")
             pass
 
-
         try:
             addTagToEmail(message_id=str(message_id), tag_name="EMT")
 
@@ -776,4 +785,290 @@ def receiveMail(folder):
             log_obj._error()
             print(error)
             continue
+    client.logout()
+
+from pydantic import BaseModel
+from fastapi import FastAPI, File, UploadFile
+from typing import List
+class EmailPayload(BaseModel):
+    body: str
+    message_id: str
+    fwd: bool
+
+async def replyEmail(payload: EmailPayload):
+    original_email = fetchEmailByMessageID(payload.message_id)
+    
+    if original_email is None:
+        return {"error": "Original email not found"}
+    
+    reply_subject = f"Re: {original_email['subject']}"
+    reply_body = f"Original email: {original_email['body']}"
+    
+    sendMail(
+        host=SMTP_HOST, port=SMTP_PORT, username=MAIL_USERNAME, password=MAIL_PASSWORD,
+        fromAddr=MAIL_USERNAME, toAddr=payload.toAddr, ccAddr="", Subject=reply_subject,
+        body=reply_body, message_id=payload.message_id, fwd=False, bccAddr=""
+    )
+    
+    return {"message": "Reply sent successfully"}
+
+async def forwardEmail(payload: EmailPayload, forward_to: str):
+    original_email = fetchEmailByMessageID(payload.message_id)
+    
+    if original_email is None:
+        return {"error": "Original email not found"}
+    
+    forward_subject = f"Fwd: {original_email['subject']}"
+    forward_body = f"Forwarded email: {original_email['body']}"
+    
+    sendMail(
+        host=SMTP_HOST, port=SMTP_PORT, username=MAIL_USERNAME, password=MAIL_PASSWORD,
+        fromAddr=MAIL_USERNAME, toAddr=forward_to, ccAddr="", Subject=forward_subject,
+        body=forward_body, message_id="", fwd=True, bccAddr=""
+    )
+    
+    return {"message": "Email forwarded successfully"}
+
+
+def fetchEmailByMessageID(message_id):
+    try:
+        # Connect to the IMAP server
+        imap_server = imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT)
+        imap_server.login(MAIL_USERNAME, MAIL_PASSWORD)
+
+        # Search for the email with the specified message_id
+        imap_server.select("inbox")  # You may need to specify the mailbox
+
+        # Search for the email based on message_id
+        search_query = f"HEADER Message-ID {message_id}"
+        _, data = imap_server.search(None, search_query)
+
+        # Get the email IDs matching the search
+        email_ids = data[0].split()
+
+        if not email_ids:
+            print("Email not found")
+            return None
+
+        # Fetch the email by ID
+        _, msg_data = imap_server.fetch(email_ids[0], "(RFC822)")
+
+        # Parse the email content
+        raw_email = msg_data[0][1]
+        email_message = email.message_from_bytes(raw_email)
+
+        # You can access email attributes like subject, sender, body, etc.
+        subject = decode_header(email_message["Subject"])[0][0]
+        sender = email_message["From"]
+        body = ""
+
+        if email_message.is_multipart():
+            for part in email_message.walk():
+                #content_type html
+                if part.get_content_type() == "text/html":
+                    content = part.get_payload(decode=True)
+                    content = content.decode("utf-8")
+                    body = content
+                    break
+        else:
+            body = email_message.get_payload(decode=True).decode("utf-8")
+        
+        #decode subject
+        try:
+            subject = str(subject, 'utf-8')
+        except:
+            pass
+        
+        # Close the IMAP connection
+        imap_server.logout()
+
+        return {
+            "subject": subject,
+            "sender": sender,
+            "body": body,
+            # Add other email attributes as needed
+        }
+
+    except Exception as e:
+        print(f"Failed to fetch email: {e}")
+        return None
+
+def sendMail(host, port, username, password, fromAddr, toAddr, ccAddr, Subject, body, message_id, fwd, bccAddr):
+    print("host: ", host)
+    print("port: ", port)
+    print("username: ", username)
+    print("password: ", password)
+    # Create an SMTP connection
+    try:
+        server = smtplib.SMTP(host, port)
+        print("connect smtp success1")
+        server.starttls()
+        print("connect smtp success2")
+        server.login(username, password)
+        
+        print("connect smtp success3")
+    except Exception as e:
+        print(f"Failed to connect to SMTP server: {e}")
+        return
+
+    # Create the email message
+    msg = MIMEMultipart()
+    msg['From'] = fromAddr
+    msg['To'] = toAddr
+    msg['Cc'] = ccAddr
+    msg['Subject'] = Subject
+
+    # Add the email body
+    #msg.attach(MIMEText(body, 'plain'))
+    msg.attach(MIMEText(body, 'html', 'utf-8'))
+
+    # If it's a forward, include a forwarded message ID
+    if fwd:
+        msg.add_header('In-Reply-To', message_id)
+        msg.add_header('References', message_id)
+
+    # Send the email
+    try:
+        server.sendmail(fromAddr, [toAddr, ccAddr, bccAddr], msg.as_string())
+        print("Email sent successfully")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
+    
+    # Close the SMTP connection
+    server.quit()
+
+
+def netflixForwardEmail():
+    folder = '"INBOX"'
+    print("connecting imap")
+    
+    # Connect IMAP
+    client = connectImap(folder=folder)
+    #CURRENT_NOW = datetime.now(pytz.utc)
+    CURRENT_NOW = datetime.now(pytz.utc) - timedelta(days=5)
+    CRITERIA = {
+        'FROM': '',
+        'SINCE': CURRENT_NOW.date().strftime("%d-%b-%Y")
+    }
+
+    # Fetch UID Email
+    print("fetching uid")
+    result, data = client.uid('search', None, '(UNSEEN)', '(SINCE {date})'.format(date=CRITERIA['SINCE']))
+    #result, data = client.uid('search', 'UNSEEN', search_string(0, CRITERIA))
+    print("fetch uid success")
+
+    if not data or len(data[0].split()) == 0:
+        print("no email fetched")
+        client.logout()
+        return
+
+    print(len(data[0].split()))
+    try:
+        uids = [int(s) for s in data[0].split()]
+    except ValueError:
+        # Handle the case where the data contains unexpected values
+        print("Error: Unexpected data from the IMAP server")
+        client.logout()
+        return
+    print("uids: ", uids)
+    
+    # Loop through the list of email UIDs
+    for uid in uids:
+        print("fetching mail")
+        result, data = client.uid('fetch', str(uid), '(RFC822)')  # Fetch by UID per email
+        print("fetch mail success")
+        
+        # Fetch Get Message ID 's email
+        result_message_id, data_message_id = client.uid('fetch', str(uid), '(BODY[HEADER.FIELDS (MESSAGE-ID)])')
+        print("fetch header success")
+        
+        msg_str = email.message_from_bytes(data_message_id[0][1])
+        
+        try:
+            mail = mailparser.parse_from_bytes(data[0][1])
+        except Exception:
+            try:
+                response = data[1]
+                mail = mailparser.parse_from_bytes(response[1])
+            except Exception:
+                try:
+                    for item in data:
+                        try:
+                            mail = mailparser.parse_from_bytes(item)
+                            break
+                        except Exception:
+                            continue
+                except Exception:
+                    print(data)
+                    print(Exception)
+                    client.uid("STORE", str(uid), '-FLAGS', '(\Seen)')
+                    continue
+
+        mail_header = json.loads(mail.headers_json)  # Get the header
+
+        date = mail_header.get("Date") or mail_header.get("date")
+        try:
+            date = convertStrToDate(date)
+        except Exception:
+            date = datetime.now(pytz.utc)
+
+        # Check receive time mail before open function must pass
+        if date < CURRENT_NOW:
+            # client.uid("STORE", str(uid), '-FLAGS', '(\Seen)')
+            # continue
+            pass
+        try:
+            message_id = msg_str.get('Message-ID').replace(" ", "").replace('\n','').replace('\r','')
+        except Exception:
+            print(Exception)
+            pass
+        
+        try:
+            original_email = fetchEmailByMessageID(str(message_id))
+        except Exception:
+            print(Exception)
+            pass
+        if original_email is None:
+            return print("Original email not found")
+        
+        forward_subject = f"Fw: {original_email['subject']}"
+        forward_body = f"Forwarded email: {original_email['body']}"
+        print(forward_body)
+        
+        toAddr = None
+        if "ขอโดย TamWT" in forward_body:
+            return print("Is Owner Email")
+        elif "ขอโดย Pin" in forward_body:
+            print("Pin")
+            toAddr = "pin@gmail.com"
+        elif "ขอโดย DOG" in forward_body:
+            print("DOG")
+            toAddr = "dog@gmail.com"
+        elif "ขอโดย Mini" in forward_body:
+            print("Mini")
+            toAddr = "mini@gmail.com"
+        elif "ขอโดย Peat" in forward_body:
+            print("Peat")
+            toAddr = "peat@gmail.com"
+        else:
+            return print("No recipient found")
+        
+        if toAddr is None:
+            return print("No recipient found")
+        
+        sendMail(
+            host=SMTP_HOST,
+            port=SMTP_PORT,
+            username=MAIL_USERNAME,
+            password=MAIL_PASSWORD,
+            fromAddr=MAIL_USERNAME,
+            toAddr=toAddr,
+            ccAddr="",
+            bccAddr="",
+            Subject=forward_subject,
+            body=forward_body,
+            message_id="",
+            fwd=True,
+        )
+
     client.logout()
