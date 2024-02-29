@@ -1040,16 +1040,16 @@ def netflixForwardEmail():
             return print("Is Owner Email")
         elif "ขอโดย Pin" in forward_body:
             print("Pin")
-            toAddr = "pin@gmail.com"
+            toAddr = "chananchida2912@gmail.com"
         elif "ขอโดย DOG" in forward_body:
             print("DOG")
-            toAddr = "dog@gmail.com"
+            toAddr = "nuttanan355@gmail.com"
         elif "ขอโดย Mini" in forward_body:
             print("Mini")
-            toAddr = "mini@gmail.com"
+            toAddr = "chananchida2912@gmail.com"
         elif "ขอโดย Peat" in forward_body:
             print("Peat")
-            toAddr = "peat@gmail.com"
+            toAddr = "pansan643@gmail.com"
         else:
             return print("No recipient found")
         
